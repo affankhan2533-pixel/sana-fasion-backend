@@ -23,4 +23,26 @@ router.get('/', async (req, res) => {
   }
 });
 
+// PUT /api/inquiries/:id (update status)
+router.put('/:id', async (req, res) => {
+  try {
+    const inquiry = await Inquiry.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    if (!inquiry) return res.status(404).json({ success: false, message: 'Inquiry not found' });
+    res.json({ success: true, inquiry });
+  } catch (err) {
+    res.status(400).json({ success: false, message: err.message });
+  }
+});
+
+// DELETE /api/inquiries/:id (delete inquiry)
+router.delete('/:id', async (req, res) => {
+  try {
+    const inquiry = await Inquiry.findByIdAndDelete(req.params.id);
+    if (!inquiry) return res.status(404).json({ success: false, message: 'Inquiry not found' });
+    res.json({ success: true, message: 'Inquiry deleted successfully' });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 module.exports = router;
