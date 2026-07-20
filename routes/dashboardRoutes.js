@@ -5,11 +5,15 @@ const Appointment = require('../models/Appointment');
 const Inquiry = require('../models/Inquiry');
 const Collection = require('../models/Collection');
 const Order = require('../models/Order');
+const VisitorLog = require('../models/VisitorLog');
 const { protect } = require('../middleware/auth');
 
 // GET /api/dashboard/stats
 router.get('/stats', protect, async (req, res) => {
   try {
+    const todayStart = new Date(new Date().setHours(0, 0, 0, 0));
+    const todayEnd = new Date(new Date().setHours(23, 59, 59, 999));
+
     const [
       totalProducts, publishedProducts, draftProducts,
       totalCollections,
@@ -18,6 +22,7 @@ router.get('/stats', protect, async (req, res) => {
       totalOrders, pendingOrders,
       lowStockProducts, outOfStockProducts,
       recentAppointments, recentInquiries,
+      totalViews, todayViews, uniqueSessions,
     ] = await Promise.all([
       Product.countDocuments(),
       Product.countDocuments({ status: 'published' }),
@@ -25,10 +30,7 @@ router.get('/stats', protect, async (req, res) => {
       Collection.countDocuments({ visible: true }),
       Appointment.countDocuments({ status: 'pending' }),
       Appointment.countDocuments({
-        date: {
-          $gte: new Date(new Date().setHours(0, 0, 0, 0)),
-          $lte: new Date(new Date().setHours(23, 59, 59, 999)),
-        },
+        date: { $gte: todayStart, $lte: todayEnd },
       }),
       Inquiry.countDocuments({ status: 'new' }),
       Order.countDocuments(),
@@ -37,6 +39,9 @@ router.get('/stats', protect, async (req, res) => {
       Product.countDocuments({ stockStatus: 'out_of_stock' }),
       Appointment.find().sort({ createdAt: -1 }).limit(5),
       Inquiry.find().sort({ createdAt: -1 }).limit(5),
+      VisitorLog.countDocuments(),
+      VisitorLog.countDocuments({ createdAt: { $gte: todayStart, $lte: todayEnd } }),
+      VisitorLog.distinct('sessionHash'),
     ]);
 
     // Recent activity feed
@@ -66,6 +71,7 @@ router.get('/stats', protect, async (req, res) => {
         inquiries: { new: newInquiries },
         orders: { total: totalOrders, pending: pendingOrders },
         inventory: { lowStock: lowStockProducts, outOfStock: outOfStockProducts },
+        views: { total: totalViews, today: todayViews, unique: uniqueSessions.length },
       },
       recentActivity,
       upcomingAppointments: await Appointment.find({ status: 'pending' })

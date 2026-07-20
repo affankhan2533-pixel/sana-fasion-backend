@@ -56,9 +56,22 @@ router.post('/', protect, async (req, res) => {
   try {
     req.body.createdBy = req.admin._id;
     req.body.updatedBy = req.admin._id;
+
+    // Auto-generate slug if missing
+    if (!req.body.slug && req.body.name) {
+      req.body.slug = req.body.name
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/(^-|-$)+/g, '') + '-' + Date.now().toString().slice(-4);
+    }
+
+    if (!req.body.description) req.body.description = 'Premium handcrafted atelier garment.';
+    if (!req.body.category) req.body.category = 'Bridal';
+
     const product = await Product.create(req.body);
     res.status(201).json({ success: true, product });
   } catch (err) {
+    console.error('Create product error:', err);
     res.status(400).json({ success: false, message: err.message });
   }
 });

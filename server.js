@@ -44,10 +44,13 @@ const authLimiter = rateLimit({
 });
 app.use('/api/auth', authLimiter);
 
+const analyticsRoutes = require('./routes/analyticsRoutes');
+
 // ── Public API routes ───────────────────────────────────────────────────────
 app.use('/api/products', productRoutes);
 app.use('/api/appointments', appointmentRoutes);
 app.use('/api/inquiries', inquiryRoutes);
+app.use('/api/analytics', analyticsRoutes);
 
 // ── Admin API routes ────────────────────────────────────────────────────────
 app.use('/api/auth', authRoutes);
