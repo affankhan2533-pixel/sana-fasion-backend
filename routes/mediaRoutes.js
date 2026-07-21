@@ -42,6 +42,10 @@ router.get('/', protect, async (req, res) => {
 // POST upload media
 router.post('/upload', protect, upload.array('files', 20), async (req, res) => {
   try {
+    if (!req.files || !req.files.length) {
+      return res.status(400).json({ success: false, message: 'No files uploaded' });
+    }
+
     const { folder = 'general', tags = '' } = req.body;
     const tagList = tags ? tags.split(',').map(t => t.trim()).filter(Boolean) : [];
     const results = [];
@@ -86,13 +90,14 @@ router.post('/upload', protect, upload.array('files', 20), async (req, res) => {
         tags: tagList,
         altText,
         isVideo: file.mimetype.startsWith('video/'),
-        uploadedBy: req.admin._id,
+        uploadedBy: req.admin?._id,
       });
       results.push(asset);
     }
 
     res.status(201).json({ success: true, assets: results });
   } catch (err) {
+    console.error('Upload media error:', err);
     res.status(500).json({ success: false, message: err.message });
   }
 });
