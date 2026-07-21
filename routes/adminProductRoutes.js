@@ -57,6 +57,9 @@ router.post('/', protect, async (req, res) => {
     req.body.createdBy = req.admin._id;
     req.body.updatedBy = req.admin._id;
 
+    if (!req.body.collection) delete req.body.collection;
+    if (!req.body.subcategory) delete req.body.subcategory;
+
     // Auto-generate slug if missing
     if (!req.body.slug && req.body.name) {
       req.body.slug = req.body.name
@@ -80,6 +83,9 @@ router.post('/', protect, async (req, res) => {
 router.put('/:id', protect, async (req, res) => {
   try {
     req.body.updatedBy = req.admin._id;
+
+    if (!req.body.collection) delete req.body.collection;
+    if (!req.body.subcategory) delete req.body.subcategory;
 
     // Save revision before update
     const existing = await Product.findById(req.params.id);
