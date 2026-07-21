@@ -4,11 +4,21 @@ const multer = require('multer');
 const MediaAsset = require('../models/MediaAsset');
 const { protect } = require('../middleware/auth');
 
-// Setup multer (memory storage — upload to Cloudinary or save locally)
+// Setup multer (memory storage with 10MB limit per file)
 const storage = multer.memoryStorage();
-const upload = multer({ storage, limits: { fileSize: 20 * 1024 * 1024 } }); // 20MB
+const upload = multer({
+  storage,
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith('image/') || file.mimetype.startsWith('video/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only image and video files are allowed'));
+    }
+  },
+});
 
-// Try to init Cloudinary if credentials exist
+// Init Cloudinary
 let cloudinary = null;
 if (process.env.CLOUDINARY_CLOUD_NAME) {
   try {
@@ -17,10 +27,14 @@ if (process.env.CLOUDINARY_CLOUD_NAME) {
       cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
       api_key: process.env.CLOUDINARY_API_KEY,
       api_secret: process.env.CLOUDINARY_API_SECRET,
+      secure: true, // Enforce HTTPS URLs
     });
+    console.log(`[MEDIA] Cloudinary initialized successfully for cloud: ${process.env.CLOUDINARY_CLOUD_NAME}`);
   } catch (e) {
-    console.warn('Cloudinary not configured — using local storage fallback');
+    console.error('[MEDIA ERROR] Failed to initialize Cloudinary:', e);
   }
+} else {
+  console.warn('[MEDIA WARNING] CLOUDINARY_CLOUD_NAME is not set. Uploads will require Cloudinary credentials.');
 }
 
 // GET all media assets
@@ -46,33 +60,41 @@ router.post('/upload', protect, upload.array('files', 20), async (req, res) => {
       return res.status(400).json({ success: false, message: 'No files uploaded' });
     }
 
+    if (!cloudinary) {
+      console.error('[MEDIA UPLOAD ERROR] Cloudinary environment variables (CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET) missing on server.');
+      return res.status(500).json({
+        success: false,
+        message: 'Cloudinary environment variables missing on server. Please configure CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET.',
+      });
+    }
+
     const { folder = 'general', tags = '' } = req.body;
     const tagList = tags ? tags.split(',').map(t => t.trim()).filter(Boolean) : [];
     const results = [];
 
     for (const file of req.files) {
-      let url, cloudinaryId, width, height, format;
+      console.log(`[MEDIA UPLOAD] Uploading file: ${file.originalname} (${(file.size / 1024 / 1024).toFixed(2)} MB) to Cloudinary...`);
 
-      if (cloudinary) {
-        // Upload to Cloudinary
-        const result = await new Promise((resolve, reject) => {
-          cloudinary.uploader.upload_stream(
-            { folder: `sana-fashion/${folder}`, resource_type: 'auto', format: 'webp', quality: 'auto' },
-            (err, result) => err ? reject(err) : resolve(result)
-          ).end(file.buffer);
-        });
-        url = result.secure_url;
-        cloudinaryId = result.public_id;
-        width = result.width;
-        height = result.height;
-        format = result.format;
-      } else {
-        // Local fallback (store as base64 URL — dev only)
-        const ext = file.originalname.split('.').pop();
-        url = `data:${file.mimetype};base64,${file.buffer.toString('base64')}`;
-        cloudinaryId = null;
-        format = ext;
-      }
+      // Upload directly to Cloudinary
+      const result = await new Promise((resolve, reject) => {
+        cloudinary.uploader.upload_stream(
+          {
+            folder: `sana-fashion/${folder}`,
+            resource_type: 'auto',
+            secure: true,
+          },
+          (err, result) => {
+            if (err) {
+              console.error(`[CLOUDINARY STREAM ERROR] Failed uploading ${file.originalname}:`, err);
+              return reject(err);
+            }
+            resolve(result);
+          }
+        ).end(file.buffer);
+      });
+
+      // Ensure URL uses HTTPS protocol exclusively
+      const secureUrl = result.secure_url || result.url.replace(/^http:/, 'https:');
 
       // Generate ALT text from filename
       const altText = file.originalname
@@ -83,22 +105,33 @@ router.post('/upload', protect, upload.array('files', 20), async (req, res) => {
       const asset = await MediaAsset.create({
         filename: file.originalname,
         originalName: file.originalname,
-        url, cloudinaryId, folder,
+        url: secureUrl,
+        cloudinaryId: result.public_id,
+        folder,
         mimeType: file.mimetype,
         size: file.size,
-        width, height, format,
+        width: result.width,
+        height: result.height,
+        format: result.format,
         tags: tagList,
         altText,
         isVideo: file.mimetype.startsWith('video/'),
         uploadedBy: req.admin?._id,
       });
+
+      console.log(`[MEDIA UPLOAD SUCCESS] Uploaded asset ID: ${asset._id}, URL: ${secureUrl}`);
       results.push(asset);
     }
 
     res.status(201).json({ success: true, assets: results });
   } catch (err) {
-    console.error('Upload media error:', err);
-    res.status(500).json({ success: false, message: err.message });
+    console.error('[PRODUCTION MEDIA UPLOAD ERROR]', {
+      timestamp: new Date().toISOString(),
+      message: err.message,
+      stack: err.stack,
+      user: req.admin?._id,
+    });
+    res.status(500).json({ success: false, message: `Image upload failed: ${err.message}` });
   }
 });
 
